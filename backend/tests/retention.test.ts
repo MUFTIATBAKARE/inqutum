@@ -12,6 +12,8 @@ import {
 import {
   MemoryRetentionStore,
   RetentionService,
+  RETENTION_SWEEP_INTERVAL_MS,
+  startRetentionScheduler,
   type RetentionRow,
 } from '../src/retention/retention-service.ts';
 
@@ -180,4 +182,129 @@ describe('data retention policy (issue #61)', () => {
     });
   });
 
+  describe('scheduler', () => {
+    /** Minimal fake timers: the scheduler only needs set/clear and an unref. */
+    interface FakeHandle {
+      unref(): void;
+    }
+
+    function fakeTimers() {
+      const live = new Map<FakeHandle, () => void>();
+      let created = 0;
+
+      return {
+        setInterval: ((fn: () => void) => {
+          created += 1;
+          const handle: FakeHandle = { unref() {} };
+          live.set(handle, fn);
+          return handle as unknown as NodeJS.Timeout;
+        }) as unknown as typeof globalThis.setInterval,
+        // Mirror the real timer: clearing removes the handle, so it stops firing.
+        clearInterval: ((handle: unknown) => {
+          live.delete(handle as FakeHandle);
+        }) as unknown as typeof globalThis.clearInterval,
+        fire: () => [...live.values()].forEach((fn) => fn()),
+        registered: () => created,
+        cleared: () => created - live.size,
+      };
+    }
+
+    function service() {
+      return new RetentionService(
+        new MemoryRetentionStore({
+          expired_invoices: [{ createdAt: daysAgo(500), status: 'EXPIRED' }],
+        })
+      );
+    }
+
+    it('uses a six-hour bucket', () => {
+      assert.equal(RETENTION_SWEEP_INTERVAL_MS, 6 * 60 * 60 * 1000);
+    });
+
+    it('waits one interval before the first report, so restarts do not re-plan', () => {
+      const timers = fakeTimers();
+      const reports: unknown[] = [];
+      startRetentionScheduler(service(), {
+        ...timers,
+        onReport: (plan) => reports.push(plan),
+      });
+
+      assert.equal(timers.registered(), 1, 'one interval is scheduled');
+      assert.equal(reports.length, 0, 'nothing reported on start');
+    });
+
+    it('reports without deleting when the interval fires', async () => {
+      const timers = fakeTimers();
+      const reports: Array<{ wouldDelete: Record<string, number> }> = [];
+      const store = new MemoryRetentionStore({
+        expired_invoices: [{ createdAt: daysAgo(500), status: 'EXPIRED' }],
+      });
+      const retention = new RetentionService(store);
+
+      startRetentionScheduler(retention, {
+        ...timers,
+        onReport: (plan) => reports.push(plan),
+      });
+      timers.fire();
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(reports.length, 1);
+      assert.equal(reports[0].wouldDelete.expired_invoices, 1);
+      // Report-only: the scheduled sweep must not have removed anything.
+      assert.equal((await retention.plan()).wouldDelete.expired_invoices, 1);
+    });
+
+    it('can report immediately on start when asked', async () => {
+      const timers = fakeTimers();
+      const reports: unknown[] = [];
+      startRetentionScheduler(service(), {
+        ...timers,
+        runOnStart: true,
+        onReport: (plan) => reports.push(plan),
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(reports.length, 1);
+    });
+
+    it('keeps the schedule alive after a failed sweep', async () => {
+      const timers = fakeTimers();
+      const errors: unknown[] = [];
+      const broken = {
+        plan: async () => {
+          throw new Error('database is down');
+        },
+      } as unknown as RetentionService;
+
+      startRetentionScheduler(broken, {
+        ...timers,
+        onError: (error) => errors.push(error),
+      });
+      timers.fire();
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(errors.length, 1);
+      assert.equal(timers.registered(), 1, 'the interval is still scheduled');
+
+      timers.fire();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(errors.length, 2, 'a second failure is still reported');
+    });
+
+    it('stops reporting once the scheduler is stopped', async () => {
+      const timers = fakeTimers();
+      const reports: unknown[] = [];
+      const stop = startRetentionScheduler(service(), {
+        ...timers,
+        onReport: (plan) => reports.push(plan),
+      });
+
+      stop();
+      assert.equal(timers.cleared(), 1, 'the interval is cleared');
+
+      timers.fire();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(reports.length, 0);
+    });
+  });
 });

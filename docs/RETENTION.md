@@ -60,22 +60,28 @@ a plan that was reviewed minutes or hours ago.
 
 ## Running a sweep
 
-The `retention.sweep` job runs on a six-hour interval, bucketed like the expiry
-sweep, and is **report-only by default**.
+`server.ts` starts the sweep on a six-hour interval and it is **report-only**:
+the scheduler calls `plan()`, which performs no writes. Starting the server
+therefore cannot delete anything, and the first run waits a full interval so a
+restart does not re-plan on every deploy. The timer is `unref`ed and cleared on
+`SIGTERM`/`SIGINT`.
 
-```bash
-# Report only (this is what the scheduler enqueues).
-npm run worker
+When a sweep finds rows past their window the server logs the count and stops
+there. Deleting is a separate, deliberate act by an operator:
 
-# Approve destruction for one bucket.
-curl -s -X POST -H "Authorization: Bearer $JOBS_ADMIN_TOKEN" \
-  -H 'content-type: application/json' \
-  -d '{"type":"retention.sweep","data":{"apply":true}}' \
-  localhost:3001/api/jobs | jq '.data.job.id'
+```ts
+// Report first, read the output, then apply in a reviewed step.
+const retention = new RetentionService(new PostgresRetentionStore(pool));
+const plan = await retention.plan();
+if (plan.clean) process.exit(0);
+console.log(summarisePlan(plan));
+await retention.apply();
 ```
 
-Report and apply runs are bucketed under different idempotency keys, so
-approving a deletion can never silently reuse an earlier report's key.
+`apply()` recomputes eligibility immediately before deleting, so the destructive
+set always matches current data rather than the plan you read. Settlement and
+financial datasets are refused there outright, so a misconfigured rule cannot
+purge them.
 
 ## Deletion is bounded
 

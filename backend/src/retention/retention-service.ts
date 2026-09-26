@@ -190,3 +190,68 @@ export class MemoryRetentionStore implements RetentionStore {
 }
 
 export { summarisePlan };
+
+/** Six hours: the same bucket the expiry sweep used, so both run together. */
+export const RETENTION_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+export interface RetentionSchedulerOptions {
+  /** Injected for tests. Defaults to the real timer functions. */
+  setInterval?: typeof globalThis.setInterval;
+  clearInterval?: typeof globalThis.clearInterval;
+  /** Notified after every report-only sweep. */
+  onReport?: (plan: RetentionPlan) => void;
+  onError?: (error: unknown) => void;
+  /** Report immediately on start instead of waiting a full interval. */
+  runOnStart?: boolean;
+  /** Overrides the six-hour default. */
+  intervalMs?: number;
+}
+
+/**
+ * Schedule the report-only sweep.
+ *
+ * The original scheduled this as a `retention.sweep` job through
+ * backend/src/jobs/runtime.ts. The job queue is not on main, so the sweep is
+ * driven by a plain interval here instead of dragging an absent framework in.
+ * Report-only: it calls plan(), which performs no writes, so starting the
+ * scheduler cannot delete anything. A deletion still needs an explicit
+ * apply() from an operator.
+ *
+ * The first run waits one full interval unless runOnStart is set, so a server
+ * restart does not re-plan on every deploy. Failures are reported and the
+ * schedule continues: one bad sweep must not stop the next one.
+ */
+export function startRetentionScheduler(
+  retention: RetentionService,
+  options: RetentionSchedulerOptions = {}
+): () => void {
+  const {
+    setInterval: set = globalThis.setInterval,
+    clearInterval: clear = globalThis.clearInterval,
+    onReport,
+    onError,
+    runOnStart = false,
+    intervalMs = RETENTION_SWEEP_INTERVAL_MS,
+  } = options;
+
+  const runOnce = async (): Promise<void> => {
+    try {
+      const plan = await retention.plan();
+      onReport?.(plan);
+    } catch (error) {
+      onError?.(error);
+    }
+  };
+
+  const handle = set(() => {
+    void runOnce();
+  }, intervalMs);
+
+  // Do not hold the process open just for the sweep.
+  const timer = handle as unknown as { unref?: () => void };
+  timer.unref?.();
+
+  if (runOnStart) void runOnce();
+
+  return () => clear(handle);
+}
