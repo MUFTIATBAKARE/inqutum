@@ -155,6 +155,7 @@ Sellers manage their invoices from the dashboard and detail views:
 | Roles, permissions and wallet sign-in | [docs/ACCESS-CONTROL.md](docs/ACCESS-CONTROL.md) |
 | Retry-safe writes with `Idempotency-Key` | [docs/IDEMPOTENCY.md](docs/IDEMPOTENCY.md) |
 | Read-only drift detection (`npm run reconcile`) | [docs/RECONCILIATION.md](docs/RECONCILIATION.md) |
+| Bulk invoice import, dry run and rollback | [docs/IMPORTS.md](docs/IMPORTS.md) |
 
 Sellers now sign in with their wallet before creating, listing or cancelling
 invoices. Set `AUTH_SESSION_SECRET` (and run `npm run db:migrate`) before deploying;

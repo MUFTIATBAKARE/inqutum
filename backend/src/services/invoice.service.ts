@@ -81,8 +81,8 @@ export class InvoiceService {
       INSERT INTO invoices (
         id, seller_public_key, seller_name, seller_email, amount,
         asset_code, asset_issuer, memo, description, customer_name,
-        customer_email, status, expires_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        customer_email, status, expires_at, external_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING *
     `;
 
@@ -100,6 +100,7 @@ export class InvoiceService {
       input.customerEmail || null,
       'PENDING',
       expiresAt,
+      input.externalId || null,
     ];
 
     try {
@@ -135,6 +136,76 @@ export class InvoiceService {
     await this.markExpiredInvoices();
     const query = 'SELECT * FROM invoices WHERE memo = $1';
     const result = await this.db.query(query, [memo]);
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return this.mapRowToInvoice(result.rows[0]);
+  }
+
+  /**
+   * Get invoice by import key (issue #53).
+   *
+   * Read-only by contract: unlike getInvoiceById and getInvoiceByMemo this must
+   * not run the lazy expiry transition, because import dry runs resolve every row
+   * through it and a preview is required to perform no persistent writes.
+   */
+  async getInvoiceByExternalId(externalId: string): Promise<Invoice | null> {
+    const query = 'SELECT * FROM invoices WHERE external_id = $1';
+    const result = await this.db.query(query, [externalId]);
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return this.mapRowToInvoice(result.rows[0]);
+  }
+
+  /**
+   * Patch only descriptive fields (issue #53).
+   *
+   * Financial and lifecycle columns are deliberately not patchable: amount,
+   * asset, seller, status and payment fields are settled facts or security
+   * boundaries, so a re-import can never reprice or reassign an invoice. An
+   * empty patch is a no-op rather than an error, so a no-change re-import
+   * reports a skip instead of failing.
+   */
+  async updateInvoiceMutableFields(
+    id: string,
+    patch: {
+      description?: string;
+      customerName?: string;
+      customerEmail?: string;
+      sellerName?: string;
+      sellerEmail?: string;
+    }
+  ): Promise<Invoice | null> {
+    const allowed = [
+      'description',
+      'customerName',
+      'customerEmail',
+      'sellerName',
+      'sellerEmail',
+    ] as const;
+
+    const columns: string[] = [];
+    const values: unknown[] = [];
+
+    for (const field of allowed) {
+      if (patch[field] !== undefined) {
+        values.push(patch[field]);
+        columns.push(`${field} = ${values.length}`);
+      }
+    }
+
+    if (columns.length === 0) {
+      return this.getInvoiceById(id);
+    }
+
+    values.push(id);
+    const query = `UPDATE invoices SET ${columns.join(', ')} WHERE id = ${values.length} RETURNING *`;
+    const result = await this.db.query(query, values);
 
     if (result.rows.length === 0) {
       return null;

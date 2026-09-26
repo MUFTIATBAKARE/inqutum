@@ -139,6 +139,12 @@ CREATE INDEX IF NOT EXISTS idx_invoices_seller ON invoices(seller_public_key);
 CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
 CREATE INDEX IF NOT EXISTS idx_invoices_asset_code ON invoices(asset_code);
 CREATE INDEX IF NOT EXISTS idx_invoices_memo ON invoices(memo);
+-- Bulk import idempotency (issue #53). Import rows may carry an externalId
+-- supplied by the caller own system; it is the key a re-import matches on so
+-- repeating a file does not create a second invoice. Nullable, and unique only
+-- where present, so ordinary invoices created through the API are unaffected.
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS external_id VARCHAR(255);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_external_id ON invoices(external_id) WHERE external_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_invoices_created_at ON invoices(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_invoices_seller_created_at ON invoices(seller_public_key, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_invoices_pending_expiry ON invoices(expires_at) WHERE status = 'PENDING';
