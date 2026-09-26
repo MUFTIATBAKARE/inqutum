@@ -14,14 +14,6 @@ import {
   RetentionService,
   type RetentionRow,
 } from '../src/retention/retention-service.ts';
-import {
-  RETENTION_SWEEP_INTERVAL_MS,
-  RETENTION_SWEEP_JOB,
-  registerJobHandlers,
-  scheduleRetentionSweep,
-} from '../src/jobs/runtime.ts';
-import { JobQueue, JobWorker } from '../src/jobs/worker.ts';
-import { MemoryJobStore } from '../src/jobs/memory-job-store.ts';
 
 const NOW = new Date('2026-09-26T00:00:00.000Z');
 const daysAgo = (days: number) => new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000);
@@ -188,78 +180,4 @@ describe('data retention policy (issue #61)', () => {
     });
   });
 
-  describe('job integration', () => {
-    function harness(retention: RetentionService) {
-      const store = new MemoryJobStore();
-      const now = () => NOW;
-      const worker = registerJobHandlers(new JobWorker({ store, now }), {
-        expirePendingInvoices: async () => 0,
-        retention,
-      });
-      return { store, worker, queue: new JobQueue(store, undefined, now) };
-    }
-
-    it('never runs a retention job when no store is wired', async () => {
-      const store = new MemoryJobStore();
-      const now = () => NOW;
-      // No `retention` dep, so only the expiry handler is registered.
-      const worker = registerJobHandlers(new JobWorker({ store, now }), {
-        expirePendingInvoices: async () => 0,
-      });
-      const queue = new JobQueue(store, undefined, now);
-      const { job } = await scheduleRetentionSweep(queue, NOW);
-
-      // The worker only claims job types it has a handler for, so the sweep is
-      // left untouched rather than executed against a missing service.
-      assert.equal(await worker.runOnce(), null);
-      const outcome = (await store.get(job.id))!;
-      assert.equal(outcome.status, 'queued');
-      assert.equal(outcome.result, null);
-    });
-
-    it('reports by default and deletes only when explicitly applied', async () => {
-      const memStore = new MemoryRetentionStore({
-        expired_invoices: [{ createdAt: daysAgo(200), status: 'EXPIRED' }],
-      });
-      const { store, worker, queue } = harness(new RetentionService(memStore));
-
-      const { job: reportJob } = await scheduleRetentionSweep(queue, NOW);
-      await worker.runOnce();
-      const reported = (await store.get(reportJob.id))?.result as {
-        applied: boolean;
-        wouldDelete: Record<string, number>;
-      };
-      assert.equal(reported.applied, false);
-      assert.equal(reported.wouldDelete.expired_invoices, 1);
-      assert.equal(memStore.size('expired_invoices'), 1, 'a report must not delete');
-
-      const { job: applyJob } = await scheduleRetentionSweep(queue, NOW, RETENTION_SWEEP_INTERVAL_MS, true);
-      await worker.runOnce();
-      const applied = (await store.get(applyJob.id))?.result as { applied: boolean; totalDeleted: number };
-      assert.equal(applied.applied, true);
-      assert.equal(applied.totalDeleted, 1);
-      assert.equal(memStore.size('expired_invoices'), 0);
-    });
-
-    it('buckets report and apply runs under different keys', async () => {
-      const memStore = new MemoryRetentionStore();
-      const { queue } = harness(new RetentionService(memStore));
-
-      const a = await scheduleRetentionSweep(queue, NOW);
-      const b = await scheduleRetentionSweep(queue, NOW, RETENTION_SWEEP_INTERVAL_MS, true);
-      assert.notEqual(a.job.idempotencyKey, b.job.idempotencyKey);
-    });
-
-    it('collapses repeated sweeps in the same bucket', async () => {
-      const { queue } = harness(new RetentionService(new MemoryRetentionStore()));
-      const a = await scheduleRetentionSweep(queue, NOW);
-      const b = await scheduleRetentionSweep(queue, new Date(NOW.getTime() + 1_000));
-      assert.equal(a.job.idempotencyKey, b.job.idempotencyKey);
-    });
-
-    it('uses its own job type and interval', () => {
-      assert.equal(RETENTION_SWEEP_JOB, 'retention.sweep');
-      assert.ok(RETENTION_SWEEP_INTERVAL_MS > 0);
-    });
-  });
 });

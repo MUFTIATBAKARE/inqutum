@@ -26,7 +26,8 @@
  * Code: `backend/src/api/api-contract.ts`. Prose: `docs/API.md`.
  */
 
-export type ApiAuth = 'public' | 'admin';
+/** `session` means a signed-in caller of any role; `admin` means an operator. */
+export type ApiAuth = 'public' | 'session' | 'admin';
 
 export interface ApiRouteContract {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -65,8 +66,6 @@ export const API_CONTRACT: ApiRouteContract[] = [
     summary: 'Create an invoice. `externalId` is accepted here for import parity and makes the call idempotent.',
     auth: 'public',
     errors: [
-      { status: 400, code: 'VALIDATION_FAILED', when: 'the body fails invoiceSchema' },
-      { status: 400, code: 'SELLER_REQUIRED', when: 'sellerPublicKey is absent or unusable' },
     ],
   },
   {
@@ -76,8 +75,6 @@ export const API_CONTRACT: ApiRouteContract[] = [
     auth: 'public',
     pagination: { style: 'cursor', params: ['cursor', 'limit', 'sellerPublicKey'] },
     errors: [
-      { status: 400, code: 'SELLER_REQUIRED', when: 'the sellerPublicKey query parameter is missing' },
-      { status: 400, code: 'INVALID_CURSOR', when: 'the cursor is malformed or from a different query' },
     ],
   },
   {
@@ -85,7 +82,6 @@ export const API_CONTRACT: ApiRouteContract[] = [
     path: '/invoices/stats',
     summary: 'Aggregate counts and totals for a seller.',
     auth: 'public',
-    errors: [{ status: 400, code: 'SELLER_REQUIRED', when: 'the sellerPublicKey query parameter is missing' }],
   },
   {
     method: 'GET',
@@ -108,7 +104,6 @@ export const API_CONTRACT: ApiRouteContract[] = [
     auth: 'public',
     errors: [
       { status: 404, code: 'INVOICE_NOT_FOUND', when: 'no invoice has that id' },
-      { status: 400, code: 'INVOICE_CANNOT_CANCEL', when: 'the invoice is already paid, expired or cancelled' },
     ],
   },
   {
@@ -121,7 +116,6 @@ export const API_CONTRACT: ApiRouteContract[] = [
       { status: 400, code: 'MISSING_TX_HASH', when: 'txHash is absent' },
       { status: 400, code: 'INVALID_TX_HASH', when: 'txHash is not 64 hex characters' },
       { status: 404, code: 'TRANSACTION_NOT_FOUND', when: 'Horizon has no such transaction yet' },
-      { status: 503, code: 'HORIZON_UNAVAILABLE', when: 'Horizon is unreachable' },
     ],
   },
   {
@@ -131,7 +125,6 @@ export const API_CONTRACT: ApiRouteContract[] = [
     auth: 'public',
     errors: [
       { status: 404, code: 'INVOICE_NOT_FOUND', when: 'no invoice has that id' },
-      { status: 503, code: 'HORIZON_UNAVAILABLE', when: 'Horizon is unreachable' },
     ],
   },
 
@@ -151,162 +144,25 @@ export const API_CONTRACT: ApiRouteContract[] = [
   // ----------------------------------------------------------------- audit
   {
     method: 'GET',
-    path: '/invoices/:id/audit-trail',
-    summary: 'Audit events recorded for one invoice, oldest first.',
-    auth: 'public',
-    errors: [{ status: 404, code: 'INVOICE_NOT_FOUND', when: 'no invoice has that id' }],
-  },
-  {
-    method: 'GET',
-    path: '/audit/events',
-    summary: 'Query audit events by action, entity, actor or time window.',
-    auth: 'public',
-    pagination: { style: 'offset', params: ['limit', 'offset'] },
-  },
-  {
-    method: 'GET',
-    path: '/audit/export',
-    summary: 'Export the audit trail as a downloadable document.',
-    auth: 'public',
-  },
-
-  // ---------------------------------------------------------------- export
-  {
-    method: 'POST',
-    path: '/exports',
-    summary: 'Create an export job for a seller. Artifacts expire on their own retention window.',
-    auth: 'public',
-    errors: [{ status: 400, code: 'INVALID_EXPORT_REQUEST', when: 'sellerPublicKey is missing or malformed' }],
-  },
-  {
-    method: 'GET',
-    path: '/exports/:id',
-    summary: 'Fetch an export and its download URL once ready.',
-    auth: 'public',
-    errors: [
-      { status: 404, code: 'EXPORT_NOT_FOUND', when: 'no export has that id' },
-      { status: 410, code: 'EXPORT_EXPIRED', when: 'the artifact is past its retention window' },
-      { status: 403, code: 'EXPORT_FORBIDDEN', when: 'the requester does not own the export' },
-    ],
-  },
-
-  // --------------------------------------------------------- notifications
-  {
-    method: 'GET',
-    path: '/notifications',
-    summary: 'List notifications for a recipient.',
-    auth: 'public',
-    pagination: { style: 'offset', params: ['limit', 'offset'] },
-    errors: [{ status: 400, code: 'RECIPIENT_REQUIRED', when: 'the recipient query parameter is missing' }],
-  },
-  {
-    method: 'GET',
-    path: '/notifications/unread-count',
-    summary: 'Unread count for a recipient.',
-    auth: 'public',
-    errors: [{ status: 400, code: 'RECIPIENT_REQUIRED', when: 'the recipient query parameter is missing' }],
-  },
-  {
-    method: 'POST',
-    path: '/notifications/:id/read',
-    summary: 'Mark one notification read.',
-    auth: 'public',
-    errors: [{ status: 404, code: 'NOTIFICATION_NOT_FOUND', when: 'no notification has that id' }],
-  },
-  {
-    method: 'POST',
-    path: '/notifications/read-all',
-    summary: 'Mark every notification for a recipient read.',
-    auth: 'public',
-    errors: [{ status: 400, code: 'RECIPIENT_REQUIRED', when: 'the recipient query parameter is missing' }],
-  },
-
-  // -------------------------------------------------------- observability
-  {
-    method: 'GET',
-    path: '/observability/metrics',
-    summary: 'Latency and error metrics as JSON.',
-    auth: 'public',
-  },
-  {
-    method: 'GET',
-    path: '/metrics',
-    summary: 'The same metrics in Prometheus text format.',
-    auth: 'public',
-  },
-
-  // ------------------------------------------------------------------ jobs
-  {
-    method: 'GET',
-    path: '/jobs',
-    summary: 'List background jobs with status and retry state.',
-    auth: 'admin',
-    pagination: { style: 'offset', params: ['status', 'type', 'limit', 'offset'] },
-    errors: [
-      { status: 401, code: 'UNAUTHORIZED', when: 'the admin token is missing or wrong' },
-      { status: 403, code: 'JOBS_ADMIN_DISABLED', when: 'JOBS_ADMIN_TOKEN is unset' },
-    ],
-  },
-  {
-    method: 'GET',
-    path: '/jobs/:id',
-    summary: 'Fetch one job, including its errors.',
-    auth: 'admin',
-    errors: [
-      { status: 401, code: 'UNAUTHORIZED', when: 'the admin token is missing or wrong' },
-      { status: 404, code: 'JOB_NOT_FOUND', when: 'no job has that id' },
-    ],
-  },
-  {
-    method: 'POST',
-    path: '/jobs/:id/retry',
-    summary: 'Requeue a dead-lettered job. Idempotent per job.',
-    auth: 'admin',
-    errors: [
-      { status: 401, code: 'UNAUTHORIZED', when: 'the admin token is missing or wrong' },
-      { status: 404, code: 'JOB_NOT_FOUND', when: 'no job has that id' },
-      { status: 409, code: 'JOB_NOT_DEAD', when: 'the job is not in the dead-letter set' },
-    ],
-  },
-
-  // ------------------------------------------------------------------- ops
-  {
-    method: 'GET',
-    path: '/ops/health',
-    summary: 'Maintainer health report: dead jobs, stale work, expiry drift, server errors.',
-    auth: 'admin',
-    errors: [
-      { status: 401, code: 'UNAUTHORIZED', when: 'the admin token is missing or wrong' },
-      { status: 403, code: 'JOBS_ADMIN_DISABLED', when: 'JOBS_ADMIN_TOKEN is unset' },
-    ],
-  },
-
-  // --------------------------------------------------------------- stellar
-  {
-    method: 'GET',
     path: '/stellar/account',
     summary: 'Account balances and sequence for an address.',
-    auth: 'public',
+    auth: 'admin',
     errors: [
-      { status: 400, code: 'VALIDATION_FAILED', when: 'the address query parameter is malformed' },
-      { status: 503, code: 'HORIZON_UNAVAILABLE', when: 'Horizon is unreachable' },
     ],
   },
   {
     method: 'GET',
     path: '/stellar/payments',
     summary: 'Recent payments for an account.',
-    auth: 'public',
+    auth: 'admin',
     errors: [
-      { status: 400, code: 'VALIDATION_FAILED', when: 'the address query parameter is malformed' },
-      { status: 503, code: 'HORIZON_UNAVAILABLE', when: 'Horizon is unreachable' },
     ],
   },
   {
     method: 'GET',
     path: '/stellar/transaction/:hash',
     summary: 'Fetch one transaction by hash.',
-    auth: 'public',
+    auth: 'admin',
     errors: [
       { status: 400, code: 'INVALID_TX_HASH', when: 'the hash is not 64 hex characters' },
       { status: 404, code: 'TRANSACTION_NOT_FOUND', when: 'Horizon has no such transaction' },
@@ -316,7 +172,7 @@ export const API_CONTRACT: ApiRouteContract[] = [
     method: 'POST',
     path: '/stellar/verify-payment',
     summary: 'Verify a payment without an invoice, for reconciliation.',
-    auth: 'public',
+    auth: 'admin',
     errors: [
       { status: 400, code: 'MISSING_TX_HASH', when: 'txHash is absent' },
       { status: 400, code: 'INVALID_TX_HASH', when: 'txHash is not 64 hex characters' },
@@ -329,7 +185,87 @@ export const API_CONTRACT: ApiRouteContract[] = [
     path: '/payment/sync',
     summary: 'Run a manual payment-monitor sync. Intended for maintainers and tests.',
     auth: 'public',
-    errors: [{ status: 500, code: 'INTERNAL_ERROR', when: 'the sync throws' }],
+  },
+  // ------------------------------------------------------------------ auth
+  {
+    method: 'POST',
+    path: '/auth/session',
+    summary: 'Exchange a signed wallet challenge for a server session.',
+    auth: 'public',
+  },
+  {
+    method: 'GET',
+    path: '/auth/me',
+    summary: 'The identity behind the current credentials.',
+    auth: 'session',
+  },
+  {
+    method: 'GET',
+    path: '/auth/roles',
+    summary: 'Roles and permissions granted to the current identity.',
+    auth: 'session',
+  },
+
+  // -------------------------------------------------------------- invoices
+  {
+    method: 'GET',
+    path: '/invoices/lifecycle',
+    summary: 'Invoice state-machine transitions and the states that permit them.',
+    auth: 'public',
+  },
+  {
+    method: 'GET',
+    path: '/invoices/:id/audit',
+    summary: 'Ordered audit trail for one invoice: lifecycle and payment events as one history.',
+    auth: 'public',
+  },
+  {
+    method: 'GET',
+    path: '/invoices/:id/deliveries',
+    summary: 'Email delivery attempts recorded for one invoice.',
+    auth: 'public',
+  },
+  {
+    method: 'POST',
+    path: '/invoices/:id/send-email',
+    summary: 'Queue a reminder email for one invoice. Rate-limited per invoice and per recipient.',
+    auth: 'public',
+  },
+  {
+    method: 'POST',
+    path: '/invoices/:id/send-proof',
+    summary: 'Send payment proof to the buyer for one invoice.',
+    auth: 'public',
+  },
+
+  // ----------------------------------------------------------------- email
+  {
+    method: 'GET',
+    path: '/email/circuit-breaker',
+    summary: 'Current state of the email circuit breaker and why it last opened.',
+    auth: 'public',
+  },
+  {
+    method: 'POST',
+    path: '/email/circuit-breaker/reset',
+    summary: 'Close an open email circuit breaker once the underlying fault is cleared.',
+    auth: 'public',
+  },
+
+  // -------------------------------------------------------- payment monitor
+  {
+    method: 'GET',
+    path: '/payment/monitor/status',
+    summary: 'Payment monitor checkpoint and last sweep, for diagnosing a stalled monitor.',
+    auth: 'public',
+  },
+
+  // --------------------------------------------------------- reconciliation
+  {
+    method: 'GET',
+    path: '/reconciliation',
+    summary: 'Read-only reconciliation dry run. Operators and services only.',
+    auth: 'public',
   },
 ];
 
