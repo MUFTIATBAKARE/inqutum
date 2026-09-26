@@ -441,7 +441,7 @@ fallback UX without Google login, and demonstration instructions are in
 [`docs/MOBILE_PAY_FEASIBILITY.md`](./docs/MOBILE_PAY_FEASIBILITY.md) and
 [`docs/MOBILE_DEMO_SCRIPT.md`](./docs/MOBILE_DEMO_SCRIPT.md).
 Data retention windows and what is protected: [`docs/RETENTION.md`](./docs/RETENTION.md).
-Disaster-recovery validation (`npm run validate:dr`): [`docs/RECOVERY.md`](./docs/RECOVERY.md).
+Disaster-recovery validation (`npm run validate:dr`): [`docs/RECOVERY.md`](./docs/RECOVERY.md). HTTP API reference and error codes: [`docs/API.md`](./docs/API.md).
 
 ## Tests & CI
 
