@@ -16,7 +16,7 @@ export default function PayAmountBlock({ invoice }: { invoice: PayPageInvoice })
           <div className="flex items-center justify-center gap-4">
             <AssetLogo code={invoice.assetCode} size={50} showName={false} />
             <div>
-              <p className="text-5xl sm:text-6xl font-bold text-cyan-700">{formatAmount(invoice.amount, 7)}</p>
+              <p className="text-5xl sm:text-6xl font-bold text-cyan-700">{formatAmount(invoice.amount)}</p>
               <p className="text-xl font-bold text-cyan-600 mt-2">{invoice.assetCode}</p>
             </div>
           </div>

@@ -1,4 +1,4 @@
-import { format } from 'date-fns';
+import { formatAmount, formatDate, formatCurrency } from './utils';
 import {
   assertPaymentProofAvailable,
   canExportPaymentProof,
@@ -59,19 +59,19 @@ export function generateInvoiceCSV(invoices: Invoice[]): string {
 
   const rows = invoices.map((inv) => [
     inv.id,
-    format(new Date(inv.createdAt), 'yyyy-MM-dd HH:mm:ss'),
+    new Date(inv.createdAt).toISOString(),
     inv.sellerName || '',
     inv.sellerEmail || '',
     inv.customerName || '',
     inv.customerEmail || '',
     inv.description || '',
-    inv.amount,
+    formatAmount(inv.amount),
     inv.assetCode,
     inv.status,
-    inv.paidAt ? format(new Date(inv.paidAt), 'yyyy-MM-dd HH:mm:ss') : '',
+    inv.paidAt ? new Date(inv.paidAt).toISOString() : '',
     inv.payerName || '',
     inv.payerEmail || '',
-    format(new Date(inv.expiresAt), 'yyyy-MM-dd HH:mm:ss'),
+    new Date(inv.expiresAt).toISOString(),
     inv.memo,
     inv.paymentTxHash || '',
   ]);
@@ -277,13 +277,13 @@ export function generateInvoicePDF(invoice: Invoice): string {
       <h3>Invoice Details</h3>
       <div class="info-row">
         <div class="info-label">Issue Date</div>
-        <div class="info-value">${format(new Date(invoice.createdAt), 'MMM dd, yyyy')}</div>
+        <div class="info-value">${formatDate((invoice.createdAt))}</div>
       </div>
       <div class="info-row">
         <div class="info-label">Expires</div>
-        <div class="info-value">${format(new Date(invoice.expiresAt), 'MMM dd, yyyy')}</div>
+        <div class="info-value">${formatDate(invoice.expiresAt)}</div>
       </div>
-      ${isPaid ? `<div class="info-row"><div class="info-label">Payment Date</div><div class="info-value">${format(new Date(invoice.paidAt!), 'MMM dd, yyyy HH:mm')}</div></div>` : ''}
+      ${isPaid ? `<div class="info-row"><div class="info-label">Payment Date</div><div class="info-value">${formatDate(invoice.paidAt!)}</div></div>` : ''}
     </div>
   </div>
 
@@ -303,7 +303,7 @@ export function generateInvoicePDF(invoice: Invoice): string {
 
   <div class="amount-section">
     <div class="amount-label">Amount ${isPaid ? 'Paid' : 'Due'}</div>
-    <div class="amount-value">${invoice.amount}</div>
+    <div class="amount-value">${formatAmount(invoice.amount)}</div>
     <div class="amount-asset">${escapeHtml(invoice.assetCode)}</div>
   </div>
 
@@ -325,7 +325,7 @@ export function generateInvoicePDF(invoice: Invoice): string {
 
   <div class="footer">
     <p><strong>Quittance</strong> - Stellar Payment Platform</p>
-    <p>Generated on ${format(new Date(), 'PPpp')}</p>
+    <p>Generated on ${formatDate(new Date())}</p>
     <p style="margin-top: 10px;">This is an automatically generated invoice.</p>
   </div>
 
@@ -370,12 +370,12 @@ export function shareInvoiceByEmail(invoice: Invoice) {
     throw new Error('Client email is required to send this invoice');
   }
 
-  const subject = `Invoice #${invoice.id.substring(0, 8).toUpperCase()} - ${invoice.amount} ${invoice.assetCode}`;
+  const subject = `Invoice #${invoice.id.substring(0, 8).toUpperCase()} - ${formatCurrency(invoice.amount, invoice.assetCode)}`;
   const isPaid = invoice.status === 'PAID';
   
   let body = `Invoice Details:\n`;
   body += `Invoice ID: ${invoice.id}\n`;
-  body += `Amount: ${invoice.amount} ${invoice.assetCode}\n`;
+  body += `Amount: ${formatCurrency(invoice.amount, invoice.assetCode)}\n`;
   body += `Status: ${invoice.status}\n`;
   
   if (invoice.customerName) body += `Client: ${invoice.customerName}\n`;
@@ -383,7 +383,7 @@ export function shareInvoiceByEmail(invoice: Invoice) {
   
   if (isPaid && invoice.paymentTxHash) {
     body += `\nPayment Information:\n`;
-    body += `Payment Date: ${format(new Date(invoice.paidAt!), 'PPpp')}\n`;
+    body += `Payment Date: ${formatDate(invoice.paidAt!)}\n`;
     body += `Transaction Hash: ${invoice.paymentTxHash}\n`;
     if (invoice.payerPublicKey) body += `Payer Address: ${invoice.payerPublicKey}\n`;
     body += `Verified on Stellar Blockchain\n`;
