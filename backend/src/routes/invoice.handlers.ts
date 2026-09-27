@@ -25,6 +25,7 @@ import { metrics } from '../observability/telemetry';
 import { exportAuditEvents, AuditAction } from '../audit/audit-service';
 import { classifyError } from '../errors/error-taxonomy';
 import { ConflictError } from '../concurrency/optimistic-lock';
+import { invoiceLockManager } from '../concurrency/lock-manager';
 import { safeFrontendOrigin } from '../security/content-safety';
 import { NotificationService, notificationService } from '../notifications/notification-service';
 import { EmailService, emailService, EmailTemplateType } from '../services/email.service';
@@ -545,8 +546,10 @@ export function createInvoiceHandlers(options: InvoiceHandlerOptions): InvoiceHa
       const start = performance.now();
       const corrId = req.correlationId || `req-${Date.now().toString(36)}`;
 
+      const { id } = req.params;
+      const releaseLock = await invoiceLockManager.acquire(id);
+
       try {
-        const { id } = req.params;
         const { network } = req.body || {};
 
         metrics.recordFunnelStage('payment_initiated');
@@ -783,6 +786,8 @@ export function createInvoiceHandlers(options: InvoiceHandlerOptions): InvoiceHa
           code: classified.code,
           correlationId: corrId,
         });
+      } finally {
+        releaseLock();
       }
     },
 
