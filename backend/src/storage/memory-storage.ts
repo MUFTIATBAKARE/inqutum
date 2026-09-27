@@ -30,6 +30,7 @@ type Invoice = StoredInvoice;
 class MemoryStorage {
   private invoices: Map<string, Invoice> = new Map();
   private invoicesByMemo: Map<string, string> = new Map(); // memo -> invoice id
+  private invoicesByExternalId: Map<string, string> = new Map(); // external_id -> invoice id (#53)
   // Which invoice each transaction hash settled; see domain/payment-attribution.ts.
   private readonly paymentClaims = new PaymentClaimIndex();
   private paymentEvents: MemoryPaymentEvent[] = [];
@@ -48,6 +49,9 @@ class MemoryStorage {
       assetCode: (data.assetCode || 'XLM').toUpperCase(),
       assetIssuer: data.assetIssuer,
       memo: data.memo!,
+      // Caller import key (issue #53). Must be copied here, not only read by the
+      // index below, or getInvoiceByExternalId cannot return the stored invoice.
+      externalId: data.externalId,
       description: data.description,
       customerName: data.customerName,
       customerEmail: data.customerEmail,
@@ -66,6 +70,11 @@ class MemoryStorage {
 
     this.invoices.set(invoice.id, invoice);
     this.invoicesByMemo.set(invoice.memo, invoice.id);
+    // Index the caller import key so a re-import matches this invoice instead
+    // of creating a second one (issue #53).
+    if (invoice.externalId) {
+      this.invoicesByExternalId.set(invoice.externalId, invoice.id);
+    }
     this.recordLifecycleEvent(invoice.id, 'INVOICE_CREATED', { to: 'PENDING' });
 
     console.log('✅ Invoice created in memory:', invoice.id);
@@ -86,6 +95,46 @@ class MemoryStorage {
   }
 
   /** Read-only memo lookup, without the expiry sweep getInvoiceByMemo runs. */
+  /**
+   * Get invoice by import key (issue #53). Intentionally skips the expiry
+   * sweep so import dry runs stay write-free, matching getInvoiceByExternalId
+   * on the Postgres backend.
+   */
+  getInvoiceByExternalId(externalId: string): Invoice | undefined {
+    const id = this.invoicesByExternalId.get(externalId);
+    return id ? this.invoices.get(id) : undefined;
+  }
+
+  /**
+   * Descriptive-field patch only (issue #53). Mirrors the Postgres backend:
+   * amount, asset, seller, status and payment columns are not patchable.
+   */
+  updateInvoiceMutableFields(
+    id: string,
+    patch: {
+      description?: string;
+      customerName?: string;
+      customerEmail?: string;
+      sellerName?: string;
+      sellerEmail?: string;
+    }
+  ): Invoice | undefined {
+    const allowed: Array<keyof typeof patch> = [
+      'description',
+      'customerName',
+      'customerEmail',
+      'sellerName',
+      'sellerEmail',
+    ];
+    const updates: Partial<Invoice> = {};
+    for (const field of allowed) {
+      if (patch[field] !== undefined) {
+        (updates as Record<string, unknown>)[field] = patch[field];
+      }
+    }
+    return this.updateInvoice(id, updates);
+  }
+
   hasMemo(memo: string): boolean {
     return this.invoicesByMemo.has(memo);
   }
@@ -304,6 +353,7 @@ class MemoryStorage {
   clear() {
     this.invoices.clear();
     this.invoicesByMemo.clear();
+    this.invoicesByExternalId.clear();
     this.paymentClaims.clear();
     this.paymentEvents = [];
     this.lifecycleEvents = [];

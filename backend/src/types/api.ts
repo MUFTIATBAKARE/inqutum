@@ -47,7 +47,10 @@ export type ApiErrorCode =
   | 'CRLF_INJECTION_DETECTED'
   | 'DISPOSABLE_EMAIL_REJECTED'
   | 'PENDING_INVOICE_LIMIT_EXCEEDED'
-  | 'EXCEEDED_INVOICE_EMAIL_LIMIT';
+  | 'EXCEEDED_INVOICE_EMAIL_LIMIT'
+  // Bulk import (issue #53)
+  | 'INVALID_IMPORT_REQUEST'
+  | 'INVALID_IMPORT_PAYLOAD';
 
 export interface ApiFailure {
   success: false;

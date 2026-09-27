@@ -51,6 +51,23 @@ export const assetCodeSchema = z
   .transform((code) => code.trim().toUpperCase())
   .pipe(z.string().regex(/^[A-Z0-9]{1,12}$/, 'Asset code must be 1-12 letters or digits'));
 
+/**
+ * Caller-supplied import key (issue #53).
+ *
+ * Bounded to the `invoices.external_id VARCHAR(255)` column and restricted to
+ * printable characters so a key can be echoed into remediation messages and
+ * compared without normalisation surprises. Matching is case-SENSITIVE, which
+ * matches the case-sensitive partial unique index in db/schema.sql.
+ */
+const externalIdSchema = z
+  .string()
+  .trim()
+  .min(1, 'externalId must not be empty')
+  .max(255, 'externalId must be at most 255 characters')
+  .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), {
+    message: 'externalId must not contain control characters',
+  });
+
 export const createInvoiceSchema = z
   .object({
     amount: z.number().positive().max(1000000000),
@@ -68,6 +85,10 @@ export const createInvoiceSchema = z
       .max(MAX_INVOICE_EXPIRY_DAYS)
       .default(DEFAULT_INVOICE_EXPIRY_DAYS),
     sellerPublicKey: stellarPublicKeySchema,
+    // Import key. Also accepted on the create route so a caller can claim a key
+    // for a single invoice; updates stay limited to descriptive fields, so a
+    // claimed key can never rewrite amounts or ownership.
+    externalId: externalIdSchema.optional(),
   })
   .refine(
     (invoice) => !requiresIssuer(invoice.assetCode) || Boolean(invoice.assetIssuer),
@@ -101,6 +122,17 @@ export const cancelInvoiceSchema = z.object({
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 export type PaymentInput = z.infer<typeof paymentSchema>;
 export type CancelInvoiceInput = z.infer<typeof cancelInvoiceSchema>;
+
+/**
+ * One row of a bulk import file (issue #53).
+ *
+ * Deliberately the same schema as `createInvoiceSchema`, exported separately so
+ * the import pipeline and its tests can name the row type without implying a
+ * different validation contract. An imported row can therefore never name an
+ * asset, amount or seller the create endpoint would have rejected.
+ */
+export const importRowSchema = createInvoiceSchema;
+export type ImportRow = z.infer<typeof importRowSchema>;
 
 export default {
   createInvoiceSchema,

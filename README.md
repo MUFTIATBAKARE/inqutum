@@ -155,6 +155,7 @@ Sellers manage their invoices from the dashboard and detail views:
 | Roles, permissions and wallet sign-in | [docs/ACCESS-CONTROL.md](docs/ACCESS-CONTROL.md) |
 | Retry-safe writes with `Idempotency-Key` | [docs/IDEMPOTENCY.md](docs/IDEMPOTENCY.md) |
 | Read-only drift detection (`npm run reconcile`) | [docs/RECONCILIATION.md](docs/RECONCILIATION.md) |
+| Bulk invoice import, dry run and rollback | [docs/IMPORTS.md](docs/IMPORTS.md) |
 
 Sellers now sign in with their wallet before creating, listing or cancelling
 invoices. Set `AUTH_SESSION_SECRET` (and run `npm run db:migrate`) before deploying;
@@ -439,6 +440,8 @@ Freighter mobile feasibility, device/browser compatibility matrix, non-custodial
 fallback UX without Google login, and demonstration instructions are in
 [`docs/MOBILE_PAY_FEASIBILITY.md`](./docs/MOBILE_PAY_FEASIBILITY.md) and
 [`docs/MOBILE_DEMO_SCRIPT.md`](./docs/MOBILE_DEMO_SCRIPT.md).
+Data retention windows and what is protected: [`docs/RETENTION.md`](./docs/RETENTION.md).
+Disaster-recovery validation (`npm run validate:dr`): [`docs/RECOVERY.md`](./docs/RECOVERY.md). HTTP API reference and error codes: [`docs/API.md`](./docs/API.md).
 
 ## Tests & CI
 

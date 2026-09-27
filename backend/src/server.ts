@@ -7,6 +7,8 @@ import { validateStellarConfig, SELLER_PUBLIC_KEY } from './config/stellar';
 import paymentMonitorService from './services/payment-monitor.service';
 import { assertSafeEnvironment, configuredFrontendOrigins, corsOptions } from './config/runtime';
 import postgresInvoiceStorage from './storage/postgres-invoice-storage';
+import { RetentionService, startRetentionScheduler } from './retention/retention-service';
+import { PostgresRetentionStore } from './retention/postgres-retention-store';
 
 dotenv.config();
 assertSafeEnvironment();
@@ -60,11 +62,30 @@ app.use((req: Request, res: Response) => {
   });
 });
 
+// Retention sweep (issue #61). Report-only: the scheduler calls plan(), which
+// performs no writes, so this cannot delete anything on its own. Report-only
+// datasets (settlement, financial) are refused by apply() regardless.
+const retentionService = new RetentionService(new PostgresRetentionStore(pool));
+let stopRetentionScheduler: (() => void) | null = null;
+
 async function initialize() {
   try {
     console.log('Starting server...');
     await pool.query('SELECT NOW()');
     console.log('Database connected');
+
+    stopRetentionScheduler = startRetentionScheduler(retentionService, {
+      onReport: (plan) => {
+        const eligible = Object.values(plan.wouldDelete).reduce((sum, n) => sum + n, 0);
+        if (eligible > 0) {
+          console.log(
+            `Retention: ${eligible} row(s) past their window. Report-only; nothing deleted. ` +
+              'Run the sweep with apply: true to act on this.'
+          );
+        }
+      },
+      onError: (error) => console.error('Retention sweep failed:', error),
+    });
 
     if (SELLER_PUBLIC_KEY) {
       validateStellarConfig();
@@ -100,6 +121,7 @@ if (/server(\.[cm]?[jt]s)?$/.test(entryPoint)) {
 
 process.on('SIGTERM', async () => {
   console.log('Shutting down...');
+  stopRetentionScheduler?.();
   paymentMonitorService.stop();
   await pool.end();
   process.exit(0);
@@ -107,6 +129,7 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('Shutting down...');
+  stopRetentionScheduler?.();
   paymentMonitorService.stop();
   await pool.end();
   process.exit(0);

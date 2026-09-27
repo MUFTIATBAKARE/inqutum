@@ -8,6 +8,7 @@ import cors from 'cors';
 import path from 'path';
 import dotenv from 'dotenv';
 import { createInvoiceRouter } from './routes/invoice.routes';
+import { createImportRouter } from './routes/import.routes';
 import memoryInvoiceStorage from './storage/memory-invoice-storage';
 import invoiceMemoryService from './services/invoice-memory.service';
 import paymentMonitorService from './services/payment-monitor.service';
@@ -68,6 +69,8 @@ app.use('/api', createAuthRouter());
 app.use('/api', createReconciliationRouter({ storage: memoryInvoiceStorage }));
 app.use('/api', createInvoiceRouter({ storage: memoryInvoiceStorage }));
 app.use('/api', createEmailRouter({ storage: memoryInvoiceStorage }));
+// Bulk import (issue #53). Dry run by default; opt in with dryRun: false.
+app.use('/api', createImportRouter({ storage: memoryInvoiceStorage }));
 app.use('/api', createPaymentMonitorRouter(paymentMonitorService));
 
 // Mock Stellar endpoint (MVP only)

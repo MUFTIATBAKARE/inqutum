@@ -3,6 +3,7 @@ import stellarController from '../controllers/stellar.controller';
 import paymentMonitorService from '../services/payment-monitor.service';
 import postgresInvoiceStorage from '../storage/postgres-invoice-storage';
 import { createInvoiceRouter } from './invoice.routes';
+import { createImportRouter } from './import.routes';
 import { createPaymentMonitorRouter } from './payment-monitor.routes';
 import { healthHandler, readinessHandler } from '../health';
 import { PostgresIdempotencyStore } from '../idempotency/postgres-store';
@@ -24,6 +25,9 @@ router.use(
     idempotencyStore: new PostgresIdempotencyStore(),
   })
 );
+
+// Bulk import (issue #53). Dry run by default; opt in with dryRun: false.
+router.use(createImportRouter({ storage: postgresInvoiceStorage }));
 
 // Email delivery & queue routes
 router.use(createEmailRouter({ storage: postgresInvoiceStorage }));
