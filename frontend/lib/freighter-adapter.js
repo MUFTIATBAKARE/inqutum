@@ -174,8 +174,9 @@ class FreighterAdapter {
 
     try {
       const api = getFreighterApi();
-      assertApiMethod('isAllowed', api.isAllowed);
-      const isAllowedRaw = await api.isAllowed();
+      const fn = api.isAllowed || api.requestAccess;
+      assertApiMethod('isAllowed / requestAccess', fn);
+      const isAllowedRaw = await fn();
       const isAllowed = normalizeBooleanResponse(isAllowedRaw, 'isAllowed');
 
       return { isConnected: true, isAllowed };
@@ -192,11 +193,13 @@ class FreighterAdapter {
 
     try {
       const api = getFreighterApi();
-      assertApiMethod('setAllowed', api.setAllowed);
-      await api.setAllowed();
+      const setFn = api.requestAccess || api.setAllowed;
+      assertApiMethod('requestAccess / setAllowed', setFn);
+      await setFn();
 
-      assertApiMethod('isAllowed', api.isAllowed);
-      const allowedRaw = await api.isAllowed();
+      const isAllowedFn = api.isAllowed || api.requestAccess;
+      assertApiMethod('isAllowed / requestAccess', isAllowedFn);
+      const allowedRaw = await isAllowedFn();
       return normalizeBooleanResponse(allowedRaw, 'isAllowed');
     } catch (error) {
       const classified = classifyFreighterError(error);
@@ -215,8 +218,9 @@ class FreighterAdapter {
 
     try {
       const api = getFreighterApi();
-      assertApiMethod('getPublicKey', api.getPublicKey);
-      const keyOrObj = await api.getPublicKey();
+      const getFn = api.getAddress || api.getPublicKey;
+      assertApiMethod('getAddress / getPublicKey', getFn);
+      const keyOrObj = await getFn();
 
       let key = '';
       if (typeof keyOrObj === 'string') {
