@@ -127,6 +127,9 @@ state that allows the transition.
 
 ### Bulk import
 
+`GET /imports/invoices/template` — the canonical import CSV (header plus one
+valid example row), as a `text/csv` attachment.
+
 `POST /imports/invoices` — JSON or CSV, **dry run by default**, `dryRun: false`
 to write. `maxRows` may only *tighten* the server's cap, never raise it. Full
 format, duplicate handling and rollback:

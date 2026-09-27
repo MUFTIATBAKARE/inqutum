@@ -48,6 +48,15 @@ The response is a plan:
 
 ## Format
 
+Download the header instead of transcribing it:
+
+```bash
+curl -s localhost:3001/api/imports/invoices/template -o invoice-import-template.csv
+```
+
+The response is the canonical header plus one example row that already passes
+validation, so filling it in and posting it works on the first attempt.
+
 Schema id `quittance.invoice-import`, **version 1**. Supported fields:
 
 `externalId, sellerPublicKey, sellerName, sellerEmail, amount, assetCode, assetIssuer, description, customerName, customerEmail, expiresInDays`

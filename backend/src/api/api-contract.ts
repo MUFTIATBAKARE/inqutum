@@ -130,6 +130,13 @@ export const API_CONTRACT: ApiRouteContract[] = [
 
   // ---------------------------------------------------------------- import
   {
+    method: 'GET',
+    path: '/imports/invoices/template',
+    summary:
+      'Download the canonical import CSV: the accepted header plus one valid example row.',
+    auth: 'public',
+  },
+  {
     method: 'POST',
     path: '/imports/invoices',
     summary:

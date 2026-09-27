@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import http from 'node:http';
 import { createImportRouter } from '../src/routes/import.routes.ts';
+import {
+  IMPORT_FIELDS,
+  buildImportCsvTemplate,
+  parseCsv,
+} from '../src/imports/import-service.ts';
+import { importRowSchema } from '../src/utils/validation.ts';
 import { MemoryInvoiceStorage } from '../src/storage/memory-invoice-storage.ts';
 import { MemoryStorage } from '../src/storage/memory-storage.ts';
 import { InvoiceMemoryService } from '../src/services/invoice-memory.service.ts';
@@ -89,5 +95,53 @@ describe('import endpoint over HTTP', () => {
     } finally {
       server.close();
     }
+  });
+});
+
+describe('import CSV template', () => {
+  const request = async (path: string) => {
+    const app = express();
+    app.use(express.json());
+    app.use(
+      '/api',
+      createImportRouter({
+        storage: new InvoiceMemoryService(new MemoryInvoiceStorage(new MemoryStorage())),
+      })
+    );
+    const server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    try {
+      const { port } = server.address() as { port: number };
+      const res = await fetch(`http://127.0.0.1:${port}${path}`);
+      return { res, body: await res.text() };
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  };
+
+  it('serves the header and an example row as a CSV attachment', async () => {
+    const { res, body } = await request('/api/imports/invoices/template');
+
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type') ?? '', /text\/csv/);
+    assert.match(res.headers.get('content-disposition') ?? '', /invoice-import-template\.csv/);
+
+    const [header, example] = body.trim().split(/\r?\n/);
+    assert.equal(header, IMPORT_FIELDS.join(','));
+    assert.ok(example, 'the template ships an example row');
+  });
+
+  it('produces a template the parser accepts without edits', () => {
+    const rows = parseCsv(buildImportCsvTemplate());
+    assert.equal(rows.length, 1);
+
+    // The point of shipping an example: it must survive the real schema.
+    const parsed = importRowSchema.safeParse(rows[0]);
+    assert.ok(parsed.success, `template row must validate: ${JSON.stringify(parsed.error?.issues)}`);
+  });
+
+  it('covers every accepted field, so the header cannot drift', () => {
+    const [header] = buildImportCsvTemplate().trim().split(/\r?\n/);
+    assert.deepEqual(header.split(','), IMPORT_FIELDS);
   });
 });
