@@ -570,5 +570,6 @@ describe('shared contract', () => {
     const clientVerification = require('../../frontend/lib/verification.js');
 
     assert.deepEqual(clientVerification.VERIFICATION_MESSAGES, VERIFICATION_MESSAGES);
+    assert.ok(clientVerification.RECOVERY_ACTIONS, 'client verification must define recovery actions');
   });
 });
