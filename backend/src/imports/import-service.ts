@@ -700,3 +700,38 @@ function buildRemediation(
 }
 
 export default ImportService;
+
+/**
+ * A ready-to-fill CSV with the canonical header and one valid example row.
+ *
+ * The header is generated from IMPORT_FIELDS rather than written out by hand,
+ * so it cannot drift from what the parser accepts. The example row is real: it
+ * validates against importRowSchema, so copying the file and editing it works
+ * on the first try instead of after a round of field errors.
+ */
+export function buildImportCsvTemplate(): string {
+  const example: Record<string, string> = {
+    externalId: 'order-1001',
+    sellerPublicKey: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
+    sellerName: 'Acme Supply Co',
+    sellerEmail: 'billing@acme.example',
+    amount: '125.50',
+    assetCode: 'XLM',
+    assetIssuer: '',
+    description: 'Invoice 1001',
+    customerName: 'Jordan Rivera',
+    customerEmail: 'jordan@example.com',
+    expiresInDays: '30',
+  };
+
+  // Any field added to IMPORT_FIELDS must appear in the example, or the
+  // template teaches callers the wrong shape.
+  for (const field of IMPORT_FIELDS) {
+    if (!(field in example)) {
+      throw new Error(`import CSV template is missing an example value for "${field}"`);
+    }
+  }
+
+  const row = IMPORT_FIELDS.map((field) => csvCell(example[field]));
+  return `${IMPORT_FIELDS.join(',')}\r\n${row.join(',')}\r\n`;
+}

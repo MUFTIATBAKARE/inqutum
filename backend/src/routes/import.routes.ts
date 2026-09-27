@@ -2,7 +2,7 @@ import { Request, Response, Router } from 'express';
 import { z } from 'zod';
 import { sendFailure, sendSuccess } from '../types/api';
 import type { InvoiceStorage } from '../storage/invoice-storage';
-import { ImportFormatError, ImportService } from '../imports/import-service';
+import { ImportFormatError, ImportService, buildImportCsvTemplate } from '../imports/import-service';
 
 export interface ImportRouterOptions {
   storage: InvoiceStorage;
@@ -37,6 +37,17 @@ const requestSchema = z.object({
 export function createImportRouter(options: ImportRouterOptions): Router {
   const service = options.service ?? new ImportService(options.storage, { maxRows: options.maxRows });
   const router = Router();
+
+  /**
+   * The canonical CSV, downloadable. Callers otherwise have to guess the header
+   * order and the exact field names, and a wrong guess costs a round trip to
+   * read per-row errors.
+   */
+  router.get('/imports/invoices/template', (_req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="invoice-import-template.csv"');
+    res.send(buildImportCsvTemplate());
+  });
 
   router.post('/imports/invoices', async (req: Request, res: Response) => {
     const parsed = requestSchema.safeParse(req.body);
