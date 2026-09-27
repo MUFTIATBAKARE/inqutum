@@ -25,7 +25,9 @@ Response `pagination`:
 `total` is the number of rows on this page. `nextCursor` is `null` on the last
 page. Cursors are opaque (base64url of `createdAt|id`). A malformed or edited
 cursor returns `400 INVALID_CURSOR`, and the client should restart from the
-first page.
+first page. Cursor payloads are strictly validated: bounded to 512 characters,
+restricted to standard base64url characters, validated for strict ISO-8601
+millisecond timestamp round-tripping and valid UUID format.
 
 ## Why cursors instead of offsets
 
@@ -65,5 +67,6 @@ any in-flight page.
 ```bash
 cd backend
 npm test                                    # cursor suite runs on both backends (fake Postgres)
+node --import tsx --test tests/invoice-cursor.test.ts # cursor encode/decode & edge-case contract tests
 DATABASE_URL=postgres://… npm run test:pg   # same-millisecond ties + inserts on real Postgres
 ```

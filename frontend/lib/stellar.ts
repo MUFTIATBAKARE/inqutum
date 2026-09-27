@@ -62,24 +62,20 @@ export const describeStellarNetworkError = (error: any): string => {
   return error?.message || 'Stellar network request failed.';
 };
 
+import { freighterAdapter } from './freighter-adapter';
+
 /**
  * Check whether the Freighter extension API is available
  */
 export const checkWalletConnection = async (): Promise<boolean> => {
-  return detectFreighter(isConnected);
+  return await freighterAdapter.detectExtension();
 };
 
 /**
  * Request permission to access wallet
  */
 export const requestWalletAccess = async (): Promise<boolean> => {
-  try {
-    await setAllowed();
-    return await isAllowed();
-  } catch (error) {
-    console.error('Error requesting wallet access:', error);
-    return false;
-  }
+  return await freighterAdapter.requestAccess();
 };
 
 /**
@@ -87,8 +83,7 @@ export const requestWalletAccess = async (): Promise<boolean> => {
  */
 export const getUserPublicKey = async (): Promise<string | null> => {
   try {
-    const publicKey = await getPublicKey();
-    return publicKey;
+    return await freighterAdapter.getPublicKey();
   } catch (error) {
     console.error('Error getting public key:', error);
     return null;
@@ -137,11 +132,8 @@ export const sendPayment = async (
   assetIssuer?: string
 ): Promise<string> => {
   try {
-    // Check wallet connection
-    const connected = await checkWalletConnection();
-    if (!connected) {
-      throw new Error('Wallet not connected');
-    }
+    // Live pre-flight check of connection & authorization (Issue #21)
+    await freighterAdapter.checkConnectionAndAuthorization();
 
     // Get user public key
     const userPublicKey = await getUserPublicKey();
@@ -190,8 +182,8 @@ export const sendPayment = async (
       .setTimeout(180)
       .build();
 
-    // Sign with Freighter
-    const signedTxXdr = await signTransaction(transaction.toXDR(), {
+    // Sign with Freighter via compatibility adapter (Issue #24)
+    const signedTxXdr = await freighterAdapter.signTransaction(transaction.toXDR(), {
       networkPassphrase: NETWORK_PASSPHRASE,
     });
 

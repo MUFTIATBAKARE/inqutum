@@ -12,10 +12,9 @@ import {
 } from './safe-content.js';
 
 export { assertPaymentProofAvailable, canExportPaymentProof };
-
 export { escapeHtml };
 
-interface Invoice {
+export interface Invoice {
   id: string;
   amount: number;
   assetCode: string;
@@ -37,6 +36,36 @@ interface Invoice {
   paymentTxHash?: string;
 }
 
+/**
+ * Safely formats a date without throwing RangeError on invalid date values.
+ *
+ * @param value Date input (string, number, Date)
+ * @param formatPattern date-fns format string
+ * @param fallback default string if date is invalid or missing
+ */
+export function safeFormatDate(
+  value: unknown,
+  formatPattern: string,
+  fallback = ''
+): string {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+  try {
+    const d = new Date(value as string | number | Date);
+    if (!Number.isFinite(d.getTime())) {
+      return fallback;
+    }
+    return format(d, formatPattern);
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Generates CSV content from an array of invoices with formula-injection protection
+ * and resilient handling of missing or corrupted fields (issue #148).
+ */
 export function generateInvoiceCSV(invoices: Invoice[]): string {
   const headers = [
     'Invoice ID',
@@ -57,24 +86,30 @@ export function generateInvoiceCSV(invoices: Invoice[]): string {
     'Transaction Hash',
   ];
 
-  const rows = invoices.map((inv) => [
-    inv.id,
-    format(new Date(inv.createdAt), 'yyyy-MM-dd HH:mm:ss'),
-    inv.sellerName || '',
-    inv.sellerEmail || '',
-    inv.customerName || '',
-    inv.customerEmail || '',
-    inv.description || '',
-    inv.amount,
-    inv.assetCode,
-    inv.status,
-    inv.paidAt ? format(new Date(inv.paidAt), 'yyyy-MM-dd HH:mm:ss') : '',
-    inv.payerName || '',
-    inv.payerEmail || '',
-    format(new Date(inv.expiresAt), 'yyyy-MM-dd HH:mm:ss'),
-    inv.memo,
-    inv.paymentTxHash || '',
-  ]);
+  if (!Array.isArray(invoices) || invoices.length === 0) {
+    return headers.join(',');
+  }
+
+  const rows = invoices
+    .filter((inv) => inv && typeof inv === 'object')
+    .map((inv) => [
+      inv.id || '',
+      safeFormatDate(inv.createdAt, 'yyyy-MM-dd HH:mm:ss', ''),
+      inv.sellerName || '',
+      inv.sellerEmail || '',
+      inv.customerName || '',
+      inv.customerEmail || '',
+      inv.description || '',
+      inv.amount !== null && inv.amount !== undefined ? inv.amount : '',
+      inv.assetCode || '',
+      inv.status || '',
+      safeFormatDate(inv.paidAt, 'yyyy-MM-dd HH:mm:ss', ''),
+      inv.payerName || '',
+      inv.payerEmail || '',
+      safeFormatDate(inv.expiresAt, 'yyyy-MM-dd HH:mm:ss', ''),
+      inv.memo || '',
+      inv.paymentTxHash || '',
+    ]);
 
   const csvContent = [
     headers.join(','),
@@ -84,13 +119,21 @@ export function generateInvoiceCSV(invoices: Invoice[]): string {
   return csvContent;
 }
 
-export function downloadInvoiceCSV(invoices: Invoice[], filename?: string) {
+/**
+ * Triggers a browser download of an invoice CSV file.
+ * Safely guards against non-browser (SSR) environments.
+ */
+export function downloadInvoiceCSV(invoices: Invoice[], filename?: string): void {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return;
+  }
+
   const csv = generateInvoiceCSV(invoices);
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
   const url = URL.createObjectURL(blob);
 
-  const defaultFilename = `invoices-${format(new Date(), 'yyyy-MM-dd-HHmmss')}.csv`;
+  const defaultFilename = `invoices-${safeFormatDate(new Date(), 'yyyy-MM-dd-HHmmss', 'export')}.csv`;
   link.setAttribute('href', url);
   link.setAttribute('download', filename || defaultFilename);
   link.style.visibility = 'hidden';
@@ -101,10 +144,27 @@ export function downloadInvoiceCSV(invoices: Invoice[], filename?: string) {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Generates standalone printable HTML for an invoice PDF.
+ * Hardens boundary contracts for date tolerance, character escaping, and proof checks (issue #148).
+ */
 export function generateInvoicePDF(invoice: Invoice): string {
+  if (!invoice || typeof invoice !== 'object') {
+    throw new Error('Invoice object is required to generate PDF');
+  }
+
   assertPaymentProofAvailable(invoice);
-  const network = process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'TESTNET' ? 'Testnet' : 'Mainnet';
+  const network =
+    process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'TESTNET' ? 'Testnet' : 'Mainnet';
   const isPaid = invoice.status === 'PAID';
+
+  const rawId = invoice.id || '';
+  const displayId = rawId.substring(0, 8).toUpperCase();
+  const safeStatus = (invoice.status || '').toLowerCase();
+  const createdDateStr = safeFormatDate(invoice.createdAt, 'MMM dd, yyyy', 'N/A');
+  const expiresDateStr = safeFormatDate(invoice.expiresAt, 'MMM dd, yyyy', 'N/A');
+  const paidDateStr = safeFormatDate(invoice.paidAt, 'MMM dd, yyyy HH:mm', 'N/A');
+  const generatedDateStr = safeFormatDate(new Date(), 'PPpp', new Date().toISOString());
 
   return `
 <!DOCTYPE html>
@@ -283,13 +343,13 @@ export function generateInvoicePDF(invoice: Invoice): string {
       <h2>Invoice Details</h2>
       <div class="info-row">
         <div class="info-label">Issue Date</div>
-        <div class="info-value">${format(new Date(invoice.createdAt), 'MMM dd, yyyy')}</div>
+        <div class="info-value">${escapeHtml(createdDateStr)}</div>
       </div>
       <div class="info-row">
         <div class="info-label">Expires</div>
-        <div class="info-value">${format(new Date(invoice.expiresAt), 'MMM dd, yyyy')}</div>
+        <div class="info-value">${escapeHtml(expiresDateStr)}</div>
       </div>
-      ${isPaid ? `<div class="info-row"><div class="info-label">Payment Date</div><div class="info-value">${format(new Date(invoice.paidAt!), 'MMM dd, yyyy HH:mm')}</div></div>` : ''}
+      ${isPaid ? `<div class="info-row"><div class="info-label">Payment Date</div><div class="info-value">${escapeHtml(paidDateStr)}</div></div>` : ''}
     </div>
   </div>
 
@@ -309,8 +369,8 @@ export function generateInvoicePDF(invoice: Invoice): string {
 
   <div class="amount-section">
     <div class="amount-label">Amount ${isPaid ? 'Paid' : 'Due'}</div>
-    <div class="amount-value">${invoice.amount}</div>
-    <div class="amount-asset">${escapeHtml(invoice.assetCode)}</div>
+    <div class="amount-value">${invoice.amount !== null && invoice.amount !== undefined ? invoice.amount : ''}</div>
+    <div class="amount-asset">${escapeHtml(invoice.assetCode || '')}</div>
   </div>
 
   ${invoice.description ? `<div class="info-section" style="margin-bottom: 20px;"><h2>Description</h2><p style="color: #1f2937; line-height: 1.6;">${escapeHtml(invoice.description)}</p></div>` : ''}
@@ -331,7 +391,7 @@ export function generateInvoicePDF(invoice: Invoice): string {
 
   <div class="footer">
     <p><strong>Quittance</strong> - Stellar Payment Platform</p>
-    <p>Generated on ${format(new Date(), 'PPpp')}</p>
+    <p>Generated on ${escapeHtml(generatedDateStr)}</p>
     <p style="margin-top: 10px;">This is an automatically generated invoice.</p>
   </div>
 
@@ -389,37 +449,48 @@ export function openInvoicePDF(invoice: Invoice) {
     toast.error('Failed to generate payment proof PDF.', { id: toastId });
     triggerElement?.focus();
   }
+
+  return false;
 }
 
-export function shareInvoiceByEmail(invoice: Invoice) {
+/**
+ * Opens the system email client to share an invoice link or payment proof.
+ */
+export function shareInvoiceByEmail(invoice: Invoice): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
   assertPaymentProofAvailable(invoice);
   if (!invoice.customerEmail) {
     throw new Error('Client email is required to send this invoice');
   }
 
-  const subject = `Invoice #${invoice.id.substring(0, 8).toUpperCase()} - ${invoice.amount} ${invoice.assetCode}`;
+  const rawId = invoice.id || '';
+  const displayId = rawId.substring(0, 8).toUpperCase();
+  const subject = `Invoice #${displayId} - ${invoice.amount} ${invoice.assetCode}`;
   const isPaid = invoice.status === 'PAID';
-  
+
   let body = `Invoice Details:\n`;
-  body += `Invoice ID: ${invoice.id}\n`;
+  body += `Invoice ID: ${rawId}\n`;
   body += `Amount: ${invoice.amount} ${invoice.assetCode}\n`;
   body += `Status: ${invoice.status}\n`;
-  
+
   if (invoice.customerName) body += `Client: ${invoice.customerName}\n`;
   if (invoice.description) body += `Description: ${invoice.description}\n`;
-  
+
   if (isPaid && invoice.paymentTxHash) {
     body += `\nPayment Information:\n`;
-    body += `Payment Date: ${format(new Date(invoice.paidAt!), 'PPpp')}\n`;
+    body += `Payment Date: ${safeFormatDate(invoice.paidAt, 'PPpp', '')}\n`;
     body += `Transaction Hash: ${invoice.paymentTxHash}\n`;
     if (invoice.payerPublicKey) body += `Payer Address: ${invoice.payerPublicKey}\n`;
     body += `Verified on Stellar Blockchain\n`;
   } else {
-    body += `\nQuittance: ${window.location.origin}/pay/${invoice.id}\n`;
+    body += `\nQuittance: ${window.location.origin}/pay/${rawId}\n`;
   }
-  
+
   body += `\nPowered by Quittance`;
-  
+
   const mailtoLink = buildMailtoUrl(invoice.customerEmail, subject, body);
   if (!mailtoLink) {
     throw new Error('Client email address is not valid');
