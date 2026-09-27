@@ -94,6 +94,9 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at DE
 ALTER TABLE invoices DROP COLUMN IF EXISTS user_id;
 DROP TABLE IF EXISTS users CASCADE;
 
+-- Converge databases created before optimistic concurrency was added.
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
+
 -- Converge databases created before expiry became an enforced lifecycle.
 UPDATE invoices
 SET expires_at = COALESCE(created_at, NOW()) + INTERVAL '7 days'

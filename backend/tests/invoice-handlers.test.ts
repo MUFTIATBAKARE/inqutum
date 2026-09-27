@@ -770,6 +770,8 @@ describe('shared invoice router', () => {
       'POST /invoices/:id/cancel',
       'POST /invoices/:id/verify',
       'POST /invoices/:id/simulate-payment',
+      'GET /invoices/:id/email-preview',
+      'POST /invoices/:id/send-email',
     ];
 
     assert.deepEqual(routeTable(new MemoryInvoiceStorage()), expected);

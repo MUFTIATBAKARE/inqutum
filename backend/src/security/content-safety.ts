@@ -27,6 +27,85 @@ export interface SanitizeOptions {
   multiline?: boolean;
 }
 
+const HTML_ESCAPE_MAP: Readonly<Record<string, string>> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#039;',
+  '`': '&#096;',
+  '/': '&#x2F;',
+};
+
+/**
+ * Escapes characters with special meaning in HTML body context.
+ * Time Complexity: O(N) linear single-pass replacement.
+ * Space Complexity: O(N) memory buffer for escaped string.
+ */
+export function escapeHtml(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value).replace(/[&<>"'`/]/g, (char) => HTML_ESCAPE_MAP[char] || char);
+}
+
+/**
+ * Escapes characters for safe inclusion within quoted HTML attributes.
+ * Enforces strict attribute safety: neutralizes quotes, ampersands, and control characters.
+ * Time Complexity: O(N) linear single-pass.
+ */
+export function escapeHtmlAttribute(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(CONTROL_CHARS, '')
+    .replace(/[&<>"'`/]/g, (char) => HTML_ESCAPE_MAP[char] || char);
+}
+
+/**
+ * Sanitizes email header values (such as Subject lines or recipient names)
+ * to prevent CRLF injection and SMTP header splitting / confused deputy attacks.
+ * Time Complexity: O(N).
+ */
+export function sanitizeEmailHeader(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .normalize('NFC')
+    .replace(/[\r\n\u0000-\u001F\u007F-\u009F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const HAS_TEMPLATE_DELIMITERS = /\{\{|\}\}|\$\{|\<%|\%\}|#\{/;
+const HAS_HTML_TAG = /<[a-zA-Z\/!?][^>]*>?/;
+const HAS_HTML_COMMENT = /<!--[\s\S]*?(?:-->|$)/;
+const HAS_CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F​-‍⁠﻿]/;
+const HAS_BIDI_CONTROLS = /[؜‎‏‪-‮⁦-⁩]/;
+
+/**
+ * Validates that client/seller names adhere to safe length (1-100) and character set,
+ * free of template injection tokens, control characters, or HTML tags.
+ */
+export function validateClientName(input: unknown): boolean {
+  if (typeof input !== 'string') return false;
+  const trimmed = input.trim();
+  if (trimmed.length < 1 || trimmed.length > 100) return false;
+  if (HAS_TEMPLATE_DELIMITERS.test(trimmed)) return false;
+  if (HAS_HTML_TAG.test(trimmed) || HAS_HTML_COMMENT.test(trimmed)) return false;
+  if (HAS_CONTROL_CHARS.test(trimmed) || HAS_BIDI_CONTROLS.test(trimmed)) return false;
+  return true;
+}
+
+/**
+ * Validates that notes/description fields adhere to safe length (1-1000) and safe character set,
+ * free of template injection delimiters or active markup.
+ */
+export function validateNotesOrDescription(input: unknown): boolean {
+  if (typeof input !== 'string') return false;
+  const trimmed = input.trim();
+  if (trimmed.length > 1000) return false;
+  if (HAS_TEMPLATE_DELIMITERS.test(trimmed)) return false;
+  if (HAS_HTML_TAG.test(trimmed) || HAS_HTML_COMMENT.test(trimmed)) return false;
+  return true;
+}
+
 /** Removes markup, control and bidi characters. Returns '' for non-strings. */
 export function sanitizePlainText(input: unknown, options: SanitizeOptions = {}): string {
   if (typeof input !== 'string') return '';

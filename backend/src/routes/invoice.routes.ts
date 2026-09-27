@@ -30,6 +30,8 @@ export function createInvoiceRouter(options: InvoiceHandlerOptions): Router {
   router.post('/invoices/:id/cancel', handlers.cancelInvoice);
   router.post('/invoices/:id/verify', handlers.verifyPayment);
   router.post('/invoices/:id/simulate-payment', handlers.simulatePayment);
+  router.get('/invoices/:id/email-preview', handlers.getEmailPreview);
+  router.post('/invoices/:id/send-email', handlers.sendInvoiceEmail);
 
   return router;
 }

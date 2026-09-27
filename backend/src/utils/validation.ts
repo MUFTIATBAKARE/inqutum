@@ -5,6 +5,7 @@ import {
   MIN_INVOICE_EXPIRY_DAYS,
 } from '../domain/invoice-expiry';
 import { NATIVE_ASSET_CODE, requiresIssuer } from './asset-helpers';
+import { DEFAULT_POLICY } from '../domain/policy';
 import { sanitizePlainText } from '../security/content-safety';
 
 // Schemas used identically by both servers. Zod validates the create+verify
@@ -36,7 +37,7 @@ const plainText = (max: number, multiline = false) =>
 
 export const createInvoiceSchema = z
   .object({
-    amount: z.number().positive().max(1000000000),
+    amount: z.number().positive().max(DEFAULT_POLICY.invoice.maxAmount),
     assetCode: z.string().default('XLM').optional(),
     assetIssuer: stellarPublicKeySchema.optional(),
     description: plainText(500, true).optional(),

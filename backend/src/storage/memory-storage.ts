@@ -3,6 +3,7 @@ import { calculateInvoiceStats } from './invoice-stats';
 import type { InvoiceStats } from './invoice-stats';
 import { isPendingInvoiceExpired } from '../domain/invoice-expiry';
 import type { StoredInvoice } from './invoice-storage';
+import { checkVersion } from '../concurrency/optimistic-lock';
 
 type Invoice = StoredInvoice;
 
@@ -27,12 +28,15 @@ class MemoryStorage {
       createdAt: new Date(),
       expiresAt: data.expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       metadata: data.metadata,
+      version: 1,
     };
 
     this.invoices.set(invoice.id, invoice);
     this.invoicesByMemo.set(invoice.memo, invoice.id);
 
-    console.log('✅ Invoice created in memory:', invoice.id);
+    if (process.env.NODE_ENV !== 'test') {
+      console.log('✅ Invoice created in memory:', invoice.id);
+    }
     return invoice;
   }
 
@@ -50,11 +54,13 @@ class MemoryStorage {
   }
 
   // Update invoice
-  updateInvoice(id: string, updates: Partial<Invoice>): Invoice | undefined {
+  updateInvoice(id: string, updates: Partial<Invoice>, expectedVersion?: number): Invoice | undefined {
     const invoice = this.invoices.get(id);
     if (!invoice) return undefined;
 
-    const updated = { ...invoice, ...updates };
+    checkVersion(expectedVersion, invoice.version ?? 1);
+
+    const updated = { ...invoice, ...updates, version: (invoice.version ?? 1) + 1 };
     this.invoices.set(id, updated);
 
     console.log('✅ Invoice updated:', id);
@@ -66,7 +72,8 @@ class MemoryStorage {
     id: string,
     txHash: string,
     payerPublicKey: string,
-    payerInfo?: { payerName?: string; payerEmail?: string }
+    payerInfo?: { payerName?: string; payerEmail?: string },
+    expectedVersion?: number
   ): Invoice | undefined {
     this.markExpiredInvoices();
     const now = new Date();
@@ -81,7 +88,7 @@ class MemoryStorage {
       payerName: payerInfo?.payerName,
       payerEmail: payerInfo?.payerEmail,
       paidAt: new Date(),
-    });
+    }, expectedVersion);
   }
 
   // Get all invoices

@@ -14,11 +14,17 @@ import { JobQueue, JobWorker } from './jobs/worker';
 import { PostgresJobStore } from './jobs/postgres-job-store';
 import { registerJobHandlers, startExpiryScheduler } from './jobs/runtime';
 import { buildUserSafeErrorResponse, classifyError } from './errors/error-taxonomy';
+import { validateEnvironment } from './config/env-validator';
 
 dotenv.config();
 
+const envCheck = validateEnvironment(process.env, { strict: process.env.NODE_ENV === 'production' });
+if (envCheck.issues.length > 0 && process.env.NODE_ENV !== 'test') {
+  console.warn(`⚠️ Configuration warnings detected:\n  - ${envCheck.issues.join('\n  - ')}`);
+}
+
 const app: Application = express();
-const PORT = process.env.PORT || 3001;
+const PORT = envCheck.validated.PORT || process.env.PORT || 3001;
 
 // Background jobs: the expiry sweep runs through the worker framework. Set
 // JOBS_EMBEDDED_WORKER=false to run workers only via `npm run worker`.
