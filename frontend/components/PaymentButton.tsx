@@ -6,7 +6,11 @@ import { toast } from 'sonner';
 import { Wallet, Loader2 } from 'lucide-react';
 import { invoiceApi } from '@/lib/api';
 import { showFreighterInstallPrompt } from '@/components/FreighterInstallPrompt';
-import { describeVerifyError, normalizePayerDetails } from '@/lib/payment-page-state';
+import { describeVerifyError } from '@/lib/payment-page-state';
+import {
+  validatePaymentRequest,
+  classifyPaymentError,
+} from '@/lib/payment-button-contract';
 
 interface PaymentButtonProps {
   destination: string;
@@ -44,21 +48,20 @@ export default function PaymentButton({
   const [loading, setLoading] = useState(false);
 
   const handlePayment = async () => {
-    if (invoiceStatus !== 'PENDING') {
-      const message = invoiceStatus === 'EXPIRED'
-        ? 'This invoice has expired and cannot be paid'
-        : 'This invoice is not available for payment';
-      toast.error(message);
-      onError?.(message);
-      return;
-    }
+    if (loading) return;
 
-    // Payer details are validated by the shared state module, so the button,
-    // the page and the tests all agree on what a valid email is.
-    const payer = normalizePayerDetails({ payerName, payerEmail });
-    if (!payer.ok) {
-      toast.error(payer.error);
-      onError?.(payer.error);
+    const validation = validatePaymentRequest({
+      destination,
+      amount,
+      memo,
+      assetCode,
+      invoiceStatus,
+      payerName,
+      payerEmail,
+    });
+    if (!validation.ok) {
+      toast.error(validation.error);
+      onError?.(validation.error);
       return;
     }
 
@@ -66,14 +69,27 @@ export default function PaymentButton({
     onStart?.();
 
     try {
-      const freighterInstalled = await checkWalletConnection();
+      let freighterInstalled = false;
+      try {
+        freighterInstalled = await checkWalletConnection();
+      } catch {
+        freighterInstalled = false;
+      }
       if (!freighterInstalled) {
         showFreighterInstallPrompt();
+        toast.info('Non-Freighter wallet? Use the QR code or manual payment details below.', {
+          duration: 8000,
+        });
         onError?.('Freighter is not installed');
         return;
       }
 
-      const allowed = await requestWalletAccess();
+      let allowed = false;
+      try {
+        allowed = await requestWalletAccess();
+      } catch {
+        allowed = false;
+      }
       if (!allowed) {
         toast.error('Freighter access was denied');
         onError?.('Freighter access was denied');
@@ -86,7 +102,7 @@ export default function PaymentButton({
       if (invoiceId) {
         toast.loading('Verifying payment...', { id: PAY_TOAST_ID });
         try {
-          await invoiceApi.verify(invoiceId, txHash, payer.value);
+          await invoiceApi.verify(invoiceId, txHash, validation.payer);
           toast.success('Payment verified', {
             id: PAY_TOAST_ID,
             description: `TX: ${txHash.slice(0, 8)}...${txHash.slice(-8)}`,
@@ -110,13 +126,11 @@ export default function PaymentButton({
 
       onSuccess?.(txHash);
     } catch (error: any) {
-      const missingTrustline =
-        assetCode !== 'XLM' && error.message?.toLowerCase().includes('trustline');
-      const title = missingTrustline ? `${assetCode} trustline required` : 'Payment failed';
+      const { title, description, duration } = classifyPaymentError(error, assetCode);
       toast.error(title, {
         id: PAY_TOAST_ID,
-        description: error.message || 'Try again',
-        duration: missingTrustline ? 10000 : undefined,
+        description,
+        duration,
       });
       onError?.(title);
     } finally {

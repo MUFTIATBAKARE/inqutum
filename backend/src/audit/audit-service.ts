@@ -17,7 +17,12 @@ export type AuditAction =
   | 'PAYMENT_SIMULATED'
   | 'INVOICE_EXPIRED'
   | 'PROOF_EXPORTED'
-  | 'MAINTAINER_ACTION';
+  | 'MAINTAINER_ACTION'
+  | 'IMPERSONATION_STARTED'
+  | 'IMPERSONATION_ENDED'
+  | 'IMPERSONATION_EXPIRED'
+  | 'IMPERSONATION_ACTION_ALLOWED'
+  | 'IMPERSONATION_ACTION_BLOCKED';
 
 export type AuditActorType = 'seller' | 'payer' | 'system' | 'maintainer';
 

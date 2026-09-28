@@ -5,6 +5,7 @@ import { CreateInvoiceInput } from '../utils/validation';
 import type { InvoiceStats } from '../storage/invoice-stats';
 import { calculateInvoiceExpiry } from '../domain/invoice-expiry';
 import type { InvoiceCursor } from '../storage/invoice-cursor';
+import { ConflictError } from '../concurrency/optimistic-lock';
 
 // PostgreSQL invoice service. Kept behaviourally identical to
 // InvoiceMemoryService so callers that go through the shared InvoiceStorage
@@ -41,6 +42,7 @@ export interface Invoice {
   paidAt?: Date;
   expiresAt: Date;
   metadata?: any;
+  version?: number;
 }
 
 export class InvoiceService {
@@ -62,8 +64,8 @@ export class InvoiceService {
       INSERT INTO invoices (
         id, seller_public_key, seller_name, seller_email, amount,
         asset_code, asset_issuer, memo, description, customer_name,
-        customer_email, status, expires_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        customer_email, status, expires_at, version
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 1)
       RETURNING *
     `;
 
@@ -130,26 +132,42 @@ export class InvoiceService {
     invoiceId: string,
     txHash: string,
     payerPublicKey: string,
-    payerInfo?: { payerName?: string; payerEmail?: string }
+    payerInfo?: { payerName?: string; payerEmail?: string },
+    expectedVersion?: number
   ): Promise<Invoice> {
-    const query = `
-      UPDATE invoices 
-      SET status = 'PAID', payment_tx_hash = $2, payer_public_key = $3, paid_at = NOW(),
-          payer_name = $4, payer_email = $5
-      WHERE id = $1 AND status = 'PENDING' AND expires_at > NOW()
-      RETURNING *
-    `;
+    let query: string;
+    let params: any[];
+
+    if (expectedVersion !== undefined) {
+      query = `
+        UPDATE invoices
+        SET status = 'PAID', payment_tx_hash = $2, payer_public_key = $3, paid_at = NOW(),
+            payer_name = $4, payer_email = $5, version = version + 1
+        WHERE id = $1 AND status = 'PENDING' AND expires_at > NOW() AND version = $6
+        RETURNING *
+      `;
+      params = [invoiceId, txHash, payerPublicKey, payerInfo?.payerName || null, payerInfo?.payerEmail || null, expectedVersion];
+    } else {
+      query = `
+        UPDATE invoices
+        SET status = 'PAID', payment_tx_hash = $2, payer_public_key = $3, paid_at = NOW(),
+            payer_name = $4, payer_email = $5, version = version + 1
+        WHERE id = $1 AND status = 'PENDING' AND expires_at > NOW()
+        RETURNING *
+      `;
+      params = [invoiceId, txHash, payerPublicKey, payerInfo?.payerName || null, payerInfo?.payerEmail || null];
+    }
 
     try {
-      const result = await this.db.query(query, [
-        invoiceId,
-        txHash,
-        payerPublicKey,
-        payerInfo?.payerName || null,
-        payerInfo?.payerEmail || null,
-      ]);
+      const result = await this.db.query(query, params);
 
       if (result.rows.length === 0) {
+        if (expectedVersion !== undefined) {
+          const check = await this.db.query('SELECT version FROM invoices WHERE id = $1', [invoiceId]);
+          if (check.rows.length > 0) {
+            throw new ConflictError(check.rows[0].version, expectedVersion);
+          }
+        }
         throw new Error('Invoice not found, expired, or already processed');
       }
 
@@ -210,18 +228,39 @@ export class InvoiceService {
   /**
    * Cancel an invoice
    */
-  async cancelInvoice(invoiceId: string): Promise<Invoice> {
+  async cancelInvoice(invoiceId: string, expectedVersion?: number): Promise<Invoice> {
     await this.markExpiredInvoices();
-    const query = `
-      UPDATE invoices 
-      SET status = 'CANCELLED'
-      WHERE id = $1 AND status = 'PENDING'
-      RETURNING *
-    `;
 
-    const result = await this.db.query(query, [invoiceId]);
+    let query: string;
+    let params: any[];
+
+    if (expectedVersion !== undefined) {
+      query = `
+        UPDATE invoices
+        SET status = 'CANCELLED', version = version + 1
+        WHERE id = $1 AND status = 'PENDING' AND version = $2
+        RETURNING *
+      `;
+      params = [invoiceId, expectedVersion];
+    } else {
+      query = `
+        UPDATE invoices
+        SET status = 'CANCELLED', version = version + 1
+        WHERE id = $1 AND status = 'PENDING'
+        RETURNING *
+      `;
+      params = [invoiceId];
+    }
+
+    const result = await this.db.query(query, params);
 
     if (result.rows.length === 0) {
+      if (expectedVersion !== undefined) {
+        const check = await this.db.query('SELECT version FROM invoices WHERE id = $1', [invoiceId]);
+        if (check.rows.length > 0) {
+          throw new ConflictError(check.rows[0].version, expectedVersion);
+        }
+      }
       throw new Error('Invoice not found or already processed');
     }
 
@@ -362,6 +401,7 @@ export class InvoiceService {
       paidAt: row.paid_at,
       expiresAt: row.expires_at,
       metadata: row.metadata,
+      version: row.version ?? 1,
     };
   }
 }

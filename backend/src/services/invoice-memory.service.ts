@@ -32,7 +32,9 @@ export class InvoiceMemoryService {
       expiresAt,
     });
 
-    console.log('✅ Invoice created:', invoice.id);
+    if (process.env.NODE_ENV !== 'test') {
+      console.log('✅ Invoice created:', invoice.id);
+    }
     return invoice;
   }
 
@@ -50,9 +52,10 @@ export class InvoiceMemoryService {
     invoiceId: string,
     txHash: string,
     payerPublicKey: string,
-    payerInfo?: PayerInfo
+    payerInfo?: PayerInfo,
+    expectedVersion?: number
   ): Promise<StoredInvoice> {
-    const invoice = this.storage.markAsPaid(invoiceId, txHash, payerPublicKey, payerInfo);
+    const invoice = this.storage.markAsPaid(invoiceId, txHash, payerPublicKey, payerInfo, expectedVersion);
 
     if (!invoice) {
       throw new Error('Invoice not found, expired, or already processed');
@@ -81,14 +84,14 @@ export class InvoiceMemoryService {
     return invoices.slice(offset, offset + limit);
   }
 
-  async cancelInvoice(invoiceId: string): Promise<StoredInvoice> {
+  async cancelInvoice(invoiceId: string, expectedVersion?: number): Promise<StoredInvoice> {
     const invoice = this.storage.getInvoiceById(invoiceId);
 
     if (!invoice || invoice.status !== 'PENDING') {
       throw new Error('Invoice not found or already processed');
     }
 
-    const updated = this.storage.updateInvoice(invoiceId, { status: 'CANCELLED' });
+    const updated = this.storage.updateInvoice(invoiceId, { status: 'CANCELLED' }, expectedVersion);
     if (!updated) {
       throw new Error('Invoice not found or already processed');
     }

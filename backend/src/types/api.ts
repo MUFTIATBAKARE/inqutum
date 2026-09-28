@@ -27,6 +27,8 @@ export interface ApiSuccess<T> {
   message?: string;
   pagination?: ApiPagination;
   correlationId?: string;
+  /** Schema version of the data payload, when applicable. */
+  apiVersion?: string;
 }
 
 export interface ApiFailure {
@@ -44,7 +46,7 @@ export type ApiResponse<T> = ApiSuccess<T> | ApiFailure;
 
 export function apiSuccess<T>(
   data: T,
-  extra?: { message?: string; pagination?: ApiPagination; correlationId?: string }
+  extra?: { message?: string; pagination?: ApiPagination; correlationId?: string; apiVersion?: string }
 ): ApiSuccess<T> {
   const body: ApiSuccess<T> = { success: true, data };
 
@@ -56,6 +58,9 @@ export function apiSuccess<T>(
   }
   if (extra?.correlationId) {
     body.correlationId = extra.correlationId;
+  }
+  if (extra?.apiVersion) {
+    body.apiVersion = extra.apiVersion;
   }
 
   return body;
@@ -90,7 +95,7 @@ export function sendSuccess<T>(
   res: Response,
   status: number,
   data: T,
-  extra?: { message?: string; pagination?: ApiPagination; correlationId?: string }
+  extra?: { message?: string; pagination?: ApiPagination; correlationId?: string; apiVersion?: string }
 ): void {
   const corrId = extra?.correlationId || (res.req as any)?.correlationId;
   res.status(status).json(apiSuccess(data, { ...extra, correlationId: corrId }));

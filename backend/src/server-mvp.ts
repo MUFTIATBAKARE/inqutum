@@ -18,11 +18,20 @@ import { securityHeaders } from './security/content-safety';
 import { correlationMiddleware } from './observability/telemetry';
 import { buildUserSafeErrorResponse, classifyError } from './errors/error-taxonomy';
 
+import { validateEnvironment } from './config/env-validator';
+import { VERIFICATION_CONTRACT_VERSION } from './services/payment-verification';
+
 // Load environment variables
 dotenv.config();
 
+// Validate startup environment and secrets safely
+const envCheck = validateEnvironment(process.env, { strict: process.env.NODE_ENV === 'production' });
+if (envCheck.issues.length > 0 && process.env.NODE_ENV !== 'test') {
+  console.warn(`⚠️ Configuration warnings detected:\n  - ${envCheck.issues.join('\n  - ')}`);
+}
+
 const app: Application = express();
-const PORT = process.env.PORT || 3001;
+const PORT = envCheck.validated.PORT || process.env.PORT || 3001;
 
 // Correlation ID & Latency Tracking
 app.use(correlationMiddleware());

@@ -217,6 +217,14 @@ export const DOMAIN_ERROR_TAXONOMY: Record<string, DomainErrorDefinition> = {
     userSafeMessage: 'Too many requests. Please slow down.',
     recoveryAction: 'Wait a few seconds before retrying the operation.',
   },
+  CONFLICT: {
+    code: 'CONFLICT',
+    category: 'LIFECYCLE',
+    httpStatus: 409,
+    retryable: true,
+    userSafeMessage: 'Invoice was modified by another session. Please refresh and try again.',
+    recoveryAction: 'Refresh the invoice to get the latest version, then retry the operation.',
+  },
   INTERNAL_ERROR: {
     code: 'INTERNAL_ERROR',
     category: 'INTERNAL',

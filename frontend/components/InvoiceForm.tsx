@@ -13,6 +13,7 @@ import {
   type InvoiceFormErrors,
   type InvoiceFormField,
 } from '@/lib/invoice-form-validation';
+import { validateCreateInvoiceInput } from '@/lib/invoice-form-contract';
 
 const FIELD_IDS: Record<InvoiceFormField, string> = {
   amount: 'invoice-amount',
@@ -59,37 +60,40 @@ export default function InvoiceForm({ onSuccess, userWallet }: InvoiceFormProps)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
 
-    if (!userWallet) {
-      toast.error('Connect your wallet first');
-      return;
-    }
+    const selectedAsset = getAssetByCode(assetCode);
+    const validation = validateCreateInvoiceInput(
+      {
+        amount,
+        assetCode,
+        assetIssuer: selectedAsset?.issuer,
+        expiresInDays,
+        sellerName,
+        sellerEmail,
+        customerName,
+        customerEmail,
+        description,
+      },
+      userWallet
+    );
 
-    const nextErrors = validateInvoiceForm({ amount, sellerEmail, customerEmail });
-    setErrors(nextErrors);
-    const invalid = firstInvalidField(nextErrors);
-    if (invalid) {
-      // Move focus to the first problem so keyboard and screen reader users land on it.
-      document.getElementById(FIELD_IDS[invalid])?.focus();
+    if (!validation.ok) {
+      if (validation.walletError) {
+        toast.error(validation.walletError);
+        return;
+      }
+      setErrors(validation.errors as InvoiceFormErrors);
+      if (validation.firstInvalid && validation.firstInvalid in FIELD_IDS) {
+        document.getElementById(FIELD_IDS[validation.firstInvalid as InvoiceFormField])?.focus();
+      }
       return;
     }
 
     setLoading(true);
     setApiError(null);
     try {
-      const selectedAsset = getAssetByCode(assetCode);
-      const result = await invoiceApi.create({
-        amount: parseFloat(amount),
-        assetCode: assetCode,
-        assetIssuer: selectedAsset?.issuer,
-        expiresInDays,
-        sellerPublicKey: userWallet,
-        sellerName: sellerName.trim() || undefined,
-        sellerEmail: sellerEmail.trim() || undefined,
-        description: description || undefined,
-        customerName: customerName.trim() || undefined,
-        customerEmail: customerEmail.trim() || undefined,
-      });
+      const result = await invoiceApi.create(validation.payload);
 
       toast.success('Invoice created');
       onSuccess?.(result.data);
@@ -101,6 +105,7 @@ export default function InvoiceForm({ onSuccess, userWallet }: InvoiceFormProps)
       setCustomerName('');
       setCustomerEmail('');
       setExpiresInDays(7);
+      setErrors({});
     } catch (error: any) {
       const message = apiErrorMessage(error, 'Failed to create invoice');
       if (isApiUnavailableError(error)) setApiError(message);

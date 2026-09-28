@@ -37,6 +37,10 @@ export interface StoredInvoice {
   paidAt?: Date;
   expiresAt: Date;
   metadata?: any;
+  /** Schema version stamp. Absent on records created before versioning. */
+  _schemaVersion?: string;
+  /** Optimistic concurrency token. Incremented on every state change. */
+  version?: number;
 }
 
 export interface PayerInfo {
@@ -73,12 +77,13 @@ export interface InvoiceStorage {
     offset?: number,
     after?: InvoiceCursor
   ): Promise<StoredInvoice[]>;
-  cancelInvoice(id: string): Promise<StoredInvoice>;
+  cancelInvoice(id: string, expectedVersion?: number): Promise<StoredInvoice>;
   markAsPaid(
     id: string,
     txHash: string,
     payerPublicKey: string,
-    payerInfo?: PayerInfo
+    payerInfo?: PayerInfo,
+    expectedVersion?: number
   ): Promise<StoredInvoice>;
   getInvoiceStats(sellerPublicKey: string): Promise<InvoiceStats[]>;
   /** Explicit maintenance hook; reads also apply this transition lazily. */

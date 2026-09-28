@@ -93,6 +93,21 @@ export const invoiceApi = USE_MOCK_API ? mockInvoiceApi : {
     });
     return response.data;
   },
+
+  getEmailPreview: async (id: string, type?: 'payment_request' | 'payment_proof') => {
+    const response = await api.get(`/invoices/${id}/email-preview`, {
+      params: type ? { type } : undefined,
+    });
+    return response.data;
+  },
+
+  sendEmail: async (
+    id: string,
+    data?: { templateType?: 'payment_request' | 'payment_proof'; recipientEmail?: string }
+  ) => {
+    const response = await api.post(`/invoices/${id}/send-email`, data || {});
+    return response.data;
+  },
 };
 
 // Stellar APIs
